@@ -39,32 +39,92 @@ class WindowsTerminalController:
         """Launch Windows Terminal with PowerShell and wait for window to be ready"""
         try:
             commands = [["wt.exe", "-p", "PowerShell"], ["wt.exe", "pwsh.exe"], ["wt.exe"], ["pwsh.exe"], ["powershell.exe"]]
+
+            # Try each command until one succeeds
             for cmd in commands:
                 try:
-                    logger.info(f"Attempting to launch with command: {' '.join(cmd)}")
-                    self.terminal_process = subprocess.Popen(
-                        cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                    )
+                    cmd_str = " ".join(cmd)
+                    logger.info(f"Attempting to launch with command: {cmd_str}")
+
+                    # Fix: Use shell=False when passing a list of arguments
+                    # For single-command executables like pwsh.exe or powershell.exe
+                    if len(cmd) == 1:
+                        self.terminal_process = subprocess.Popen(
+                            cmd[0],
+                            shell=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            creationflags=subprocess.CREATE_NEW_CONSOLE,
+                        )
+                    else:
+                        # For wt.exe with parameters
+                        self.terminal_process = subprocess.Popen(
+                            cmd,
+                            shell=False,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            creationflags=subprocess.CREATE_NEW_CONSOLE,
+                        )
+
+                    # Check process state immediately
+                    if self.terminal_process.poll() is not None:
+                        # Process terminated immediately
+                        stdout, stderr = self.terminal_process.communicate(timeout=1)
+                        exit_code = self.terminal_process.returncode
+                        logger.warning(f"Command {cmd_str} terminated immediately with exit code {exit_code}")
+                        logger.warning(f"Stdout: {stdout.decode('utf-8', errors='ignore')}")
+                        logger.warning(f"Stderr: {stderr.decode('utf-8', errors='ignore')}")
+                        continue
+
                     # Wait for process to start and window to appear
                     max_wait = 15  # seconds
                     poll_interval = 0.5
                     waited = 0
+
+                    logger.info(f"Waiting for terminal window to appear (PID: {self.terminal_process.pid})")
                     while waited < max_wait:
+                        # Check if process is still running
+                        if self.terminal_process.poll() is not None:
+                            logger.warning(f"Terminal process exited prematurely with code {self.terminal_process.returncode}")
+                            break
+
+                        # Check if terminal window is found
                         if self.is_terminal_running() and self.find_terminal_window():
-                            logger.info(f"Terminal launched and window found with command: {' '.join(cmd)}")
+                            logger.info(f"Terminal launched and window found with command: {cmd_str}")
                             # Try to focus the window as well
                             self.focus_terminal()
                             return True
+
                         time.sleep(poll_interval)
                         waited += poll_interval
-                    logger.warning(
-                        f"Terminal process started but window not found after {max_wait}s for command: {' '.join(cmd)}"
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to launch with {cmd}: {e}")
+                        logger.debug(f"Waited {waited}s for terminal window to appear")
+
+                    logger.warning(f"Terminal process started but window not found after {max_wait}s for command: {cmd_str}")
+
+                    # Try to terminate the process if it's still running
+                    if self.terminal_process.poll() is None:
+                        logger.info("Terminating failed terminal process")
+                        try:
+                            self.terminal_process.terminate()
+                            self.terminal_process.wait(timeout=3)
+                        except (subprocess.TimeoutExpired, Exception) as e:
+                            logger.warning(f"Failed to terminate process: {e}")
+                            try:
+                                self.terminal_process.kill()
+                            except Exception as e:
+                                logger.warning(f"Failed to kill process: {e}")
+
+                except FileNotFoundError:
+                    logger.warning(f"Command not found: {' '.join(cmd)}")
                     continue
+                except Exception as e:
+                    logger.warning(f"Failed to launch with {' '.join(cmd)}: {e}")
+                    continue
+
+            # All attempts failed
             logger.error("All terminal launch attempts failed")
             return False
+
         except Exception as e:
             logger.error(f"Error launching terminal: {e}")
             return False

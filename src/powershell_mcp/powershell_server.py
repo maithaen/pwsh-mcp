@@ -5,12 +5,12 @@ import time
 import logging
 import os
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 import pyperclip
 from powershell_mcp.windows_terminal_controller import WindowsTerminalController
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # Constants
@@ -26,31 +26,35 @@ SERVER_VERSION = "1.1.0"
 @dataclass
 class ToolResult:
     """Standardized tool execution result"""
+
     success: bool
     data: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
-    
+
     def to_dict(self) -> Dict[str, Any]:
-        result = {"success": self.success}
+        result: Dict[str, Any] = {"success": self.success}
         if self.data:
             result.update(self.data)
-        if self.error:
+        if self.error is not None:
             result["error"] = self.error
         return result
 
 
 class PowerShellMCPError(Exception):
     """Base exception for PowerShell MCP operations"""
+
     pass
 
 
 class TerminalNotAvailableError(PowerShellMCPError):
     """Raised when terminal is not available or cannot be launched"""
+
     pass
 
 
 class ScriptExecutionError(PowerShellMCPError):
     """Raised when script execution fails"""
+
     pass
 
 
@@ -68,21 +72,21 @@ class PowerShellMCPServer:
         return {
             "execute_pwsh_script": {
                 "name": "execute_pwsh_script",
-                "description": "Execute PowerShell script by pasting into terminal (supports both single-line and multi-line scripts)",
+                "description": "Execute PowerShell script by pasting into terminal (supports both single-line and multi-line scripts)",  # noqa: E501
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "script": {
-                            "type": "string", 
+                            "type": "string",
                             "description": "PowerShell script to execute (single-line or multi-line)",
-                            "minLength": 1
+                            "minLength": 1,
                         },
                         "timeout": {
-                            "type": "integer", 
-                            "description": f"Timeout in seconds (default: {DEFAULT_TIMEOUT})", 
+                            "type": "integer",
+                            "description": f"Timeout in seconds (default: {DEFAULT_TIMEOUT})",
                             "default": DEFAULT_TIMEOUT,
                             "minimum": 1,
-                            "maximum": 300
+                            "maximum": 300,
                         },
                     },
                     "required": ["script"],
@@ -102,11 +106,7 @@ class PowerShellMCPServer:
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "save_path": {
-                            "type": "string", 
-                            "description": "Optional path to save screenshot", 
-                            "default": None
-                        },
+                        "save_path": {"type": "string", "description": "Optional path to save screenshot", "default": None},
                         "exclude_titlebar": {
                             "type": "boolean",
                             "description": "Exclude window title bar from capture (default: true)",
@@ -180,16 +180,12 @@ class PowerShellMCPServer:
             # Execute the appropriate tool
             if tool_name == "execute_pwsh_script":
                 result = await self.execute_pwsh_script(
-                    arguments.get("script", ""), 
-                    arguments.get("timeout", self.default_timeout)
+                    arguments.get("script", ""), arguments.get("timeout", self.default_timeout)
                 )
             elif tool_name == "get_clipboard":
                 result = await self.get_clipboard()
             elif tool_name == "capture_pwsh_response":
-                result = await self.capture_pwsh_response(
-                    arguments.get("save_path"), 
-                    arguments.get("exclude_titlebar", True)
-                )
+                result = await self.capture_pwsh_response(arguments.get("save_path"), arguments.get("exclude_titlebar", True))
             else:
                 return self._create_error_response(request_id, -32601, f"Tool not implemented: {tool_name}")
 
@@ -211,23 +207,23 @@ class PowerShellMCPServer:
         """Validate tool arguments against schema"""
         tool_schema = self.tools.get(tool_name, {}).get("inputSchema", {})
         required_fields = tool_schema.get("required", [])
-        properties = tool_schema.get("properties", {})
-        
+        properties = tool_schema.get("properties", {})  # noqa: F841
+
         # Check required fields
         for field in required_fields:
             if field not in arguments:
                 return f"Missing required argument: {field}"
-        
+
         # Validate specific constraints
         if tool_name == "execute_pwsh_script":
             script = arguments.get("script", "")
             if not script or not script.strip():
                 return "Script cannot be empty"
-            
+
             timeout = arguments.get("timeout", self.default_timeout)
             if not isinstance(timeout, int) or timeout < 1 or timeout > 300:
                 return "Timeout must be an integer between 1 and 300 seconds"
-        
+
         return None
 
     def _create_error_response(self, request_id: int, code: int, message: str) -> Dict[str, Any]:
@@ -273,11 +269,11 @@ class PowerShellMCPServer:
                     "is_multiline": is_multiline,
                     "script_type": script_type,
                     "timeout_used": timeout,
-                    "message": f"{script_type.capitalize()} with {len(lines)} line{'s' if len(lines) != 1 else ''} executed successfully",
-                }
+                    "message": f"{script_type.capitalize()} with {len(lines)} line{'s' if len(lines) != 1 else ''} executed successfully",  # noqa: E501
+                },
             )
-            
-            logger.info(f"Script execution completed successfully")
+
+            logger.info("Script execution completed successfully")
             return result.to_dict()
 
         except PowerShellMCPError:
@@ -302,7 +298,7 @@ class PowerShellMCPServer:
                 if self.terminal_controller.focus_terminal():
                     logger.info(f"Terminal ready after {attempt + 1} attempt(s)")
                     return
-            
+
             logger.debug(f"Terminal not ready, attempt {attempt + 1}/{DEFAULT_RETRY_ATTEMPTS}")
             await asyncio.sleep(DEFAULT_RETRY_DELAY)
 
@@ -313,9 +309,9 @@ class PowerShellMCPServer:
         try:
             clipboard_content = pyperclip.paste()
             content_length = len(clipboard_content)
-            
+
             logger.debug(f"Retrieved clipboard content: {content_length} characters")
-            
+
             result = ToolResult(
                 success=True,
                 data={
@@ -323,9 +319,9 @@ class PowerShellMCPServer:
                     "length": content_length,
                     "is_empty": content_length == 0,
                     "message": f"Clipboard content retrieved successfully ({content_length} characters)",
-                }
+                },
             )
-            
+
             return result.to_dict()
 
         except Exception as e:
@@ -343,14 +339,14 @@ class PowerShellMCPServer:
 
             # Determine and validate save path
             final_path = self._get_screenshot_path(save_path)
-            
+
             # Ensure directory exists
             os.makedirs(os.path.dirname(final_path), exist_ok=True)
 
             # Save screenshot
             screenshot.save(final_path)
             file_size = os.path.getsize(final_path)
-            
+
             logger.info(f"Screenshot saved: {final_path} ({file_size} bytes)")
 
             result = ToolResult(
@@ -362,9 +358,9 @@ class PowerShellMCPServer:
                     "exclude_titlebar": exclude_titlebar,
                     "custom_path": save_path is not None,
                     "message": f"Screenshot saved to {'specified path' if save_path else 'temp directory'}",
-                }
+                },
             )
-            
+
             return result.to_dict()
 
         except PowerShellMCPError:
@@ -377,8 +373,8 @@ class PowerShellMCPServer:
         """Generate appropriate screenshot save path"""
         if save_path:
             # Validate custom path
-            if not save_path.lower().endswith('.png'):
-                save_path += '.png'
+            if not save_path.lower().endswith(".png"):
+                save_path += ".png"
             return os.path.abspath(save_path)
         else:
             # Generate temp path
@@ -393,7 +389,7 @@ class PowerShellMCPServer:
         logger.info(f"Default timeout: {self.default_timeout}s")
 
         request_count = 0
-        
+
         try:
             while True:
                 try:
